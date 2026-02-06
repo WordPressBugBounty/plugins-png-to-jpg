@@ -3,22 +3,16 @@
 	Plugin Name: PNG to JPG
 	Plugin URI: https://wp-speedup.eu
 	Description: Convert PNG images to JPG, free up web space and speed up your webpage
-	Version: 4.4
+	Version: 4.5
 	Author: KubiQ
 	Author URI: https://www.paypal.me/jakubnovaksl
 	Text Domain: png_to_jpg
 	Domain Path: /languages
 */
 
-/*
-** TODO
-** - restore PNG version?
-*/
-
 class png_to_jpg{
 	var $plugin_admin_page;
 	var $settings;
-	var $db_tables;
 	var $tab;
 	var $image;
 	var $converted_stats;
@@ -39,6 +33,18 @@ class png_to_jpg{
 		add_filter( 'media_row_actions', array( $this, 'media_row_action' ), 10, 2 );
 		add_filter( 'attachment_fields_to_edit', array( $this, 'attachment_fields_to_edit' ), 10, 2 );
 		add_filter( 'wp_loaded', array( $this, 'convert_png_from_media_library' ), 10, 2 );
+
+		add_filter( 'posts_clauses', function( $clauses, $query ){
+			global $wpdb;
+			if( is_admin() ){
+				$direction = $query->get('sort_filesize');
+				if( in_array( $direction, [ 'asc', 'desc' ] ) ){
+					$clauses['join'] .= " LEFT JOIN {$wpdb->postmeta} AS mt_filesize ON {$wpdb->posts}.ID = mt_filesize.post_id AND mt_filesize.meta_key = '_wp_attachment_metadata' ";
+					$clauses['orderby'] = "CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(mt_filesize.meta_value, 's:8:\"filesize\";i:', -1), ';', 1) AS UNSIGNED) " . strtoupper( $direction );
+				}
+			}
+			return $clauses;
+		}, 10, 2 );
 	}
 
 	function media_row_action( $actions, $post ){
@@ -189,7 +195,6 @@ class png_to_jpg{
 	function plugin_init(){
 		global $wpdb;
 		$this->settings = get_option('png_to_jpg_settings');
-		$this->db_tables = $wpdb->get_col('SHOW TABLES');
 	}
 
 	function plugin_admin_tabs( $current = 'general' ){
@@ -347,13 +352,17 @@ class png_to_jpg{
 		$nonce = wp_create_nonce('convert_old_png');
 		wp_enqueue_media();
 		$paged = isset( $_GET['paged'] ) && intval( $_GET['paged'] ) ? intval( $_GET['paged'] ) : 1;
-		$query_images = new WP_Query(array(
+		$args = [
 			'post_type' => 'attachment',
 			'post_mime_type' => 'image/png',
 			'post_status' => 'inherit',
 			'posts_per_page' => $this->settings['general']['images_per_page'],
 			'paged' => $paged,
-		)); ?>
+		];
+		if( ! empty( $_GET['order'] ) ){
+			$args['sort_filesize'] = $_GET['order'] == 'asc' ? 'asc' : 'desc';
+		}
+		$query_images = new WP_Query( $args ); ?>
 		<div class="below-h2 error"><p><strong><?php _e( 'Do you have BACKUP? This operation will alter your original images and cannot be undone!', 'png_to_jpg' ) ?></strong></p></div>
 		<div class="below-h2 error">
 			<p>
@@ -394,8 +403,20 @@ class png_to_jpg{
 			<thead>
 				<tr>
 					<th class="check-column"><input type="checkbox"></th>
+
 					<th><?php _e('Media') ?></th>
-					<th><?php _e( 'Filesize', 'png_to_jpg' ) ?></th>
+
+
+					<th scope="col" id="filesize" class="manage-column column-filesize column-primary <?php echo empty( $_GET['order'] ) ? 'sortable' : ( $_GET['order'] == 'asc' ? 'sorted asc' : 'sorted desc' ) ?>" abbr="Filesize">
+						<a href="?page=<?php echo basename( __FILE__ ) ?>&amp;tab=convert&amp;order=<?php echo empty( $_GET['order'] ) || $_GET['order'] == 'asc' ? 'desc' : 'asc' ?>">
+							<span><?php _e( 'Filesize', 'png_to_jpg' ) ?></span>
+							<span class="sorting-indicators">
+								<span class="sorting-indicator asc" aria-hidden="true"></span>
+								<span class="sorting-indicator desc" aria-hidden="true"></span>
+							</span>
+						</a>
+					</th>
+
 					<?php if( isset( $this->settings['general']['autodetect'] ) ): ?>
 						<th><?php _e( 'Has transparency', 'png_to_jpg' ) ?></th>
 					<?php endif ?>
@@ -828,6 +849,8 @@ class png_to_jpg{
 	function update_image_data(){
 		global $wpdb;
 
+		$db_tables = $wpdb->get_col('SHOW TABLES');
+
 		$old_name = basename( $this->image['link'] );
 		$old_name_clean = substr( $old_name, 0, -4 );
 		$new_name = basename( $this->image['new_url'] );
@@ -895,7 +918,7 @@ class png_to_jpg{
 			");
 			// Yoast SEO: wp_yoast_seo_links
 			$table_name = $wpdb->prefix.'yoast_seo_links';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET url = REPLACE( url, '/{$old}', '/{$new}') 
@@ -904,7 +927,7 @@ class png_to_jpg{
 			}
 			// Revolution Slider: wp_revslider_slides
 			$table_name = $wpdb->prefix.'revslider_slides';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET params = REPLACE( params, '/{$old}', '/{$new}') 
@@ -918,7 +941,7 @@ class png_to_jpg{
 			}
 			// Revolution Slider: wp_revslider_static_slides
 			$table_name = $wpdb->prefix.'revslider_static_slides';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET layers = REPLACE( layers, '/{$old}', '/{$new}') 
@@ -927,7 +950,7 @@ class png_to_jpg{
 			}
 			// Toolset Types: wp_toolset_post_guid_id
 			$table_name = $wpdb->prefix.'toolset_post_guid_id';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET guid = REPLACE( guid, '/{$old}', '/{$new}') 
@@ -936,7 +959,7 @@ class png_to_jpg{
 			}
 			// Fancy Product Designer: wp_fpd_products
 			$table_name = $wpdb->prefix.'fpd_products';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET thumbnail = REPLACE( thumbnail, '/{$old}', '/{$new}') 
@@ -945,7 +968,7 @@ class png_to_jpg{
 			}
 			// Fancy Product Designer: wp_fpd_views
 			$table_name = $wpdb->prefix.'fpd_views';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET thumbnail = REPLACE( thumbnail, '/{$old}', '/{$new}') 
@@ -959,7 +982,7 @@ class png_to_jpg{
 			}
 			// Broken Link Checker: wp_blc_instances
 			$table_name = $wpdb->prefix.'blc_instances';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET link_text = REPLACE( link_text, '/{$old}', '/{$new}') 
@@ -973,7 +996,7 @@ class png_to_jpg{
 			}
 			// Broken Link Checker: wp_blc_links
 			$table_name = $wpdb->prefix.'blc_links';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET url = REPLACE( url, '/{$old}', '/{$new}') 
@@ -997,7 +1020,7 @@ class png_to_jpg{
 			}
 			// FV Player
 			$table_name = $wpdb->prefix.'fv_player_videos';
-			if( in_array( $table_name, $this->db_tables ) ){
+			if( in_array( $table_name, $db_tables ) ){
 				$wpdb->query("
 					UPDATE $table_name 
 					SET splash = REPLACE( splash, '/{$old}', '/{$new}') 
