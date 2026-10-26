@@ -3,8 +3,8 @@ Contributors: kubiq
 Donate link: https://www.paypal.me/jakubnovaksl
 Tags: optimize, save space, convert, image, media
 Requires at least: 3.0.1
-Tested up to: 6.9
-Stable tag: 4.5
+Tested up to: 7.1
+Stable tag: 4.6
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,7 +23,14 @@ Convert PNG images to JPG, free up web space and speed up your webpage
 	<li>convert existing PNG image to JPG</li>
 	<li>bulk convert existing PNG images to JPG</li>
 	<li>conversion statistics</li>
+	<li>WP-CLI commands for bulk and single image conversion</li>
 </ul>
+
+= WP-CLI =
+
+`wp png-to-jpg convert <id>... [--quality=<n>] [--force] [--skip-transparent] [--keep-original|--delete-original] [--dry-run]`
+`wp png-to-jpg bulk [--limit=<n>] [--quality=<n>] [--force] [--skip-transparent] [--keep-original|--delete-original] [--dry-run] [--yes] [--format=<table|csv|json|yaml>]`
+`wp png-to-jpg stats`
 
 == Installation ==
 
@@ -31,6 +38,15 @@ Convert PNG images to JPG, free up web space and speed up your webpage
 2. Activate the plugin through the 'Plugins' menu in WordPress
 
 == Changelog ==
+
+= 4.6 =
+* new WP-CLI commands: `wp png-to-jpg convert`, `bulk` and `stats`
+* security: nonce + capability checks on all conversion, transparency and Yoast reindex actions
+* security: escaped output in the Convert existing screen, prepared SQL queries for URL replacement
+* fix: URL replacement now includes the upload folder, so same-named images from different months are not mixed up
+* fix: failed conversions in the bulk screen are reported instead of silently removed from the list
+* fix: free GD memory after each image, reset conversion stats between images
+* performance: one UPDATE per column instead of one per image size, transparency detection reads only PNG headers, media template buffering only where needed
 
 = 4.5 =
 * tested on WP 6.9
